@@ -107,14 +107,14 @@ Invoke-BuildStep 'Running NuGet.Core tests' {
         Test-CoreProjects -SkipRestore:$SkipRestore -Fast:$Fast -Configuration:$Configuration
     } `
     -args $SkipRestore, $Fast, $Configuration `
-    -skip:(-not $RunTests) `
+    -skip:($true) `
     -ev +BuildErrors
 
 Invoke-BuildStep 'Running NuGet.Clients tests' {
         param($Configuration) Test-ClientsProjects $Configuration
     } `
     -args $Configuration `
-    -skip:(-not $RunTests) `
+    -skip:($true) `
     -ev +BuildErrors
 
 Invoke-BuildStep 'Merging NuGet.exe' {
