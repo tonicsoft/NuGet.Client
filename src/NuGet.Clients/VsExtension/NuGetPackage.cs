@@ -373,31 +373,33 @@ namespace NuGetVSExtension
             // Initialize the credential providers.
             var credentialProviders = new List<NuGet.Credentials.ICredentialProvider>();
             
-            TryAddCredentialProvider(
+            TryAddCredentialProviders(
                 credentialProviders,
                 Resources.CredentialProviderFailed_LegacyCredentialProvider,
                 () =>
                 {
                     var packageSourceProvider = new PackageSourceProvider(new SettingsToLegacySettings(Settings));
 
-                    return new CredentialProviderAdapter(new SettingsCredentialProvider(
+                    return new NuGet.Credentials.ICredentialProvider[1] {
+                        new CredentialProviderAdapter(new SettingsCredentialProvider(
                         NullCredentialProvider.Instance,
-                        packageSourceProvider));
+                        packageSourceProvider)) };
                 });
-            
-            TryAddCredentialProvider(
+
+            TryAddCredentialProviders(
                 credentialProviders,
                 Resources.CredentialProviderFailed_VisualStudioAccountProvider,
                 () =>
                 {
                     var importer = new VsCredentialProviderImporter(
                         _dte,
-                        VisualStudioAccountProvider.FactoryMethod);
+                        VisualStudioAccountProvider.FactoryMethod,
+                        (exception, failureMessage) => LogCredentialProviderError(exception, failureMessage));
 
-                    return importer.GetProvider();
+                    return importer.GetProviders();
                 });
 
-            TryAddCredentialProvider(
+            TryAddCredentialProviders(
                 credentialProviders,
                 Resources.CredentialProviderFailed_VisualStudioCredentialProvider,
                 () =>
@@ -406,7 +408,9 @@ namespace NuGetVSExtension
 
                     Debug.Assert(webProxy != null);
 
-                    return new VisualStudioCredentialProvider(webProxy);
+                    return new NuGet.Credentials.ICredentialProvider[1] {
+                        new VisualStudioCredentialProvider(webProxy)
+                    };
                 });
 
             // Initialize the credential service.
@@ -415,41 +419,43 @@ namespace NuGetVSExtension
             return credentialService;
         }
 
-        private void TryAddCredentialProvider(
+        private void TryAddCredentialProviders(
             List<NuGet.Credentials.ICredentialProvider> credentialProviders,
             string failureMessage,
-            Func<NuGet.Credentials.ICredentialProvider> factory)
+            Func<IEnumerable<NuGet.Credentials.ICredentialProvider>> factory)
         {
             try
             {
-                var credentialProvider = factory();
+                var providers = factory();
 
-                if (credentialProvider != null)
+                if (providers != null)
                 {
-                    credentialProviders.Add(credentialProvider);
+                    foreach (var credentialProvider in providers)
+                    {
+                        credentialProviders.Add(credentialProvider);
+                    }
                 }
             }
             catch (Exception exception)
             {
-                // Log the user-friendly message to the output console (no stack trace).
-                _outputConsoleLogger.OutputConsole.WriteLine(
-                    failureMessage +
-                    Environment.NewLine +
-                    ExceptionUtilities.DisplayMessage(exception));
-
-                // Write the stack trace to the activity log.
-                ActivityLog.LogWarning(
-                    ExceptionHelper.LogEntrySource,
-                    failureMessage +
-                    Environment.NewLine +
-                    exception);
+                LogCredentialProviderError(exception, failureMessage);
             }
         }
 
-        private void LogCredentialProviderError(string error)
+        private void LogCredentialProviderError(Exception exception, string failureMessage)
         {
-            _outputConsoleLogger.OutputConsole.WriteLine(error);
-            ActivityLog.LogWarning(ExceptionHelper.LogEntrySource, error);
+            // Log the user-friendly message to the output console (no stack trace).
+            _outputConsoleLogger.OutputConsole.WriteLine(
+                failureMessage +
+                Environment.NewLine +
+                ExceptionUtilities.DisplayMessage(exception));
+
+            // Write the stack trace to the activity log.
+            ActivityLog.LogWarning(
+                ExceptionHelper.LogEntrySource,
+                failureMessage +
+                Environment.NewLine +
+                exception);
         }
 
         private void AddMenuCommandHandlers()
