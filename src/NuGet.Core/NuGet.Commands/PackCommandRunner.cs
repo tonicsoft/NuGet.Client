@@ -22,6 +22,7 @@ namespace NuGet.Commands
         public delegate IProjectFactory CreateProjectFactory(PackArgs packArgs, string path);
 
         private PackArgs _packArgs;
+        private PackageBuilder _packageBuilder;
         internal static readonly string SymbolsExtension = ".symbols" + NuGetConstants.PackageExtension;
         private CreateProjectFactory _createProjectFactory;
         private const string Configuration = "configuration";
@@ -62,6 +63,11 @@ namespace NuGet.Commands
         private readonly HashSet<string> _excludes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         public IEnumerable<IPackageRule> Rules { get; set; }
+
+        public PackCommandRunner(PackArgs packArgs, CreateProjectFactory createProjectFactory, PackageBuilder packageBuilder) : this(packArgs, createProjectFactory)
+        {
+            this._packageBuilder = packageBuilder;
+        }
 
         public PackCommandRunner(PackArgs packArgs, CreateProjectFactory createProjectFactory)
         {
@@ -511,9 +517,9 @@ namespace NuGet.Commands
             }
         }
 
-        private static void AddDependencyGroups(IEnumerable<LibraryDependency> dependencies, NuGetFramework framework, PackageBuilder builder)
+        public static void AddDependencyGroups(IEnumerable<LibraryDependency> dependencies, NuGetFramework framework, PackageBuilder builder)
         {
-            List<PackageDependency> packageDependencies = new List<PackageDependency>();
+            ISet<PackageDependency> packageDependencies = new HashSet<PackageDependency>();
 
             foreach (var dependency in dependencies)
             {
@@ -573,7 +579,34 @@ namespace NuGet.Commands
                 }
             }
 
-            builder.DependencyGroups.Add(new PackageDependencyGroup(framework, packageDependencies));
+            var dependencyGroup = builder.DependencyGroups.FirstOrDefault(r => r.TargetFramework.Equals(framework));
+            if (dependencyGroup != null)
+            {
+                foreach (var packageDependency in packageDependencies)
+                {
+                    var matchingDependency = dependencyGroup.Packages.Single(r => r.Id == packageDependency.Id);
+                    if (matchingDependency != null)
+                    {
+                        VersionRange newVersionRange = VersionRange.CommonSubSet(new VersionRange[]
+                        {
+                            matchingDependency.VersionRange, packageDependency.VersionRange
+                        });
+                        if (newVersionRange != VersionRange.None)
+                        {
+                            dependencyGroup.Packages.Remove(matchingDependency);
+                            dependencyGroup.Packages.Add(new PackageDependency(matchingDependency.Id, newVersionRange, packageDependency.Include, packageDependency.Exclude));
+                        }
+                        else
+                        {
+                            throw new Exception("Your package version constraints are messed up.");
+                        }
+                    }
+                }
+            }
+            else
+            {
+                builder.DependencyGroups.Add(new PackageDependencyGroup(framework, packageDependencies));
+            }
         }
 
         private PackageArchiveReader BuildFromNuspec(string path)
@@ -623,7 +656,7 @@ namespace NuGet.Commands
 
         private PackageArchiveReader BuildFromProjectFile(string path)
         {
-            if (String.IsNullOrEmpty(_packArgs.MsBuildDirectory.Value) || _createProjectFactory == null)
+            if ((String.IsNullOrEmpty(_packArgs.MsBuildDirectory?.Value) || _createProjectFactory == null) && _packArgs.PackTargetArgs == null)
             {
                 _packArgs.Logger.LogError(Strings.Error_CannotFindMsbuild);
                 return null;
@@ -648,7 +681,7 @@ namespace NuGet.Commands
             }
 
             // Create a builder for the main package as well as the sources/symbols package
-            PackageBuilder mainPackageBuilder = factory.CreateBuilder(_packArgs.BasePath, version, _packArgs.Suffix, buildIfNeeded: true);
+            PackageBuilder mainPackageBuilder = factory.CreateBuilder(_packArgs.BasePath, version, _packArgs.Suffix, buildIfNeeded: true, builder: this._packageBuilder);
 
             if (mainPackageBuilder == null)
             {
@@ -679,7 +712,7 @@ namespace NuGet.Commands
             }
 
             factory.SetIncludeSymbols(true);
-            PackageBuilder symbolsBuilder = factory.CreateBuilder(_packArgs.BasePath, argsVersion, _packArgs.Suffix, buildIfNeeded: false);
+            PackageBuilder symbolsBuilder = factory.CreateBuilder(_packArgs.BasePath, argsVersion, _packArgs.Suffix, buildIfNeeded: false, builder:mainPackageBuilder);
             symbolsBuilder.Version = mainPackageBuilder.Version;
             symbolsBuilder.HasSnapshotVersion = mainPackageBuilder.HasSnapshotVersion;
 
@@ -691,7 +724,7 @@ namespace NuGet.Commands
             return package;
         }
 
-        private PackageArchiveReader BuildPackage(PackageBuilder builder, string outputPath = null)
+        public PackageArchiveReader BuildPackage(PackageBuilder builder, string outputPath = null)
         {
             if (!String.IsNullOrEmpty(_packArgs.Version))
             {
