@@ -380,7 +380,7 @@ namespace NuGetVSExtension
                 {
                     var packageSourceProvider = new PackageSourceProvider(new SettingsToLegacySettings(Settings));
 
-                    return new NuGet.Credentials.ICredentialProvider[1] {
+                    return new NuGet.Credentials.ICredentialProvider[] {
                         new CredentialProviderAdapter(new SettingsCredentialProvider(
                         NullCredentialProvider.Instance,
                         packageSourceProvider)) };
@@ -408,7 +408,7 @@ namespace NuGetVSExtension
 
                     Debug.Assert(webProxy != null);
 
-                    return new NuGet.Credentials.ICredentialProvider[1] {
+                    return new NuGet.Credentials.ICredentialProvider[] {
                         new VisualStudioCredentialProvider(webProxy)
                     };
                 });
