@@ -2118,6 +2118,115 @@ namespace Proj2
             }
         }
 
+        // Test that exclude masks like '**name' do 
+        // exclude files with names like '**\xxxname'.
+        [Fact]
+        public void PackCommand_ExcludeAllFilesEndingWithGivenName()
+        {
+            var nugetexe = Util.GetNuGetExePath();
+
+            using (var workingDirectory = TestFileSystemUtility.CreateRandomTestFolder())
+            {
+                // Arrange
+                var projDirectory = Path.Combine(workingDirectory, "package");
+
+                Util.CreateFile(projDirectory, "also.exclude.me", "some text");
+                Util.CreateFile(projDirectory, "exclude.me", "some text");
+                Util.CreateFile(projDirectory, "include.me", "some text");
+
+                Util.CreateFile(
+                    projDirectory,
+                    "package.nuspec",
+@"<package xmlns='http://schemas.microsoft.com/packaging/2011/08/nuspec.xsd'>
+  <metadata>
+    <id>ExcludeBug</id>
+    <version>0.1.0.0</version>
+    <authors>test</authors>
+    <description>Sample package for demonstrating file/@exclude matching.</description>
+  </metadata>
+  <files>
+    <file src=""**"" exclude=""**exclude.me"" target=""Content\package"" />
+  </files>
+</package>");
+
+                // Act
+                var r = CommandRunner.Run(
+                    nugetexe,
+                    projDirectory,
+                    "pack package.nuspec",
+                    waitForExit: true);
+
+                Assert.Equal(0, r.Item1);
+
+                // Assert
+                var package = new OptimizedZipPackage(Path.Combine(projDirectory, "ExcludeBug.0.1.0.nupkg"));
+                var files = package.GetFiles().Select(f => f.Path).ToArray();
+                Array.Sort(files);
+
+                Assert.Equal(
+                    new string[]
+                    {
+                        @"Content\package\include.me"
+                    },
+                    files);
+            }
+        }
+
+        // Test that exclude masks like '**\name' do not 
+        // exclude files with names like '**\xxxname'.
+        [Fact(Skip = "Failing test to demonstrate bug.")]
+        public void PackCommand_ExcludeAllFilesWithExactlyGivenName()
+        {
+            var nugetexe = Util.GetNuGetExePath();
+
+            using (var workingDirectory = TestFileSystemUtility.CreateRandomTestFolder())
+            {
+                // Arrange
+                var projDirectory = Path.Combine(workingDirectory, "package");
+
+                Util.CreateFile(projDirectory, "do.not.exclude.me", "some text");
+                Util.CreateFile(projDirectory, "exclude.me", "some text");
+                Util.CreateFile(projDirectory, "include.me", "some text");
+
+                Util.CreateFile(
+                    projDirectory,
+                    "package.nuspec",
+@"<package xmlns='http://schemas.microsoft.com/packaging/2011/08/nuspec.xsd'>
+  <metadata>
+    <id>ExcludeBug</id>
+    <version>0.1.0.0</version>
+    <authors>test</authors>
+    <description>Sample package for reproducing bug in file/@exclude matching.</description>
+  </metadata>
+  <files>
+    <file src=""**"" exclude=""**\exclude.me"" target=""Content\package"" />
+  </files>
+</package>");
+
+                // Act
+                var r = CommandRunner.Run(
+                    nugetexe,
+                    projDirectory,
+                    "pack package.nuspec",
+                    waitForExit: true);
+
+                Assert.Equal(0, r.Item1);
+
+                // Assert
+                var package = new OptimizedZipPackage(Path.Combine(projDirectory, "ExcludeBug.0.1.0.nupkg"));
+                var files = package.GetFiles().Select(f => f.Path).ToArray();
+                Array.Sort(files);
+
+                Assert.Equal(
+                    new string[]
+                    {
+                        @"Content\package\do.not.exclude.me",
+                        @"Content\package\include.me"
+                    },
+                    files);
+            }
+        }
+
         // Test that NuGet packages of the project are added as dependencies
         [Theory]
         [InlineData("packages.config")]
